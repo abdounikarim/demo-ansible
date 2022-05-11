@@ -1,0 +1,147 @@
+---
+- hosts: all
+  become: true
+
+  vars:
+    php_version: 8.1
+
+  pre_tasks:
+    - name: Update and upgrade dependencies
+      become: true
+      apt:
+        upgrade: safe
+      tags:
+        - configure
+
+    - name: Install low-level utilities
+      become: true
+      apt:
+        name: "{{ item }}"
+      with_items:
+        - zip
+        - unzip
+      tags:
+        - configure
+
+  tasks:
+    - name: Add PHP 8 PPA repository
+      become: true
+      apt_repository:
+        repo: 'ppa:ondrej/php'
+      tags:
+        - configure
+
+    - name: Install PHP packages
+      become: true
+      apt:
+        name:
+          - php{{ php_version }}-cli
+          - php{{ php_version }}-curl
+          - php{{ php_version }}-fpm
+          - php{{ php_version }}-gd
+          - php{{ php_version }}-intl
+          - php{{ php_version }}-mbstring
+          - php{{ php_version }}-mysql
+          - php{{ php_version }}-opcache
+          - php{{ php_version }}-sqlite3
+          - php{{ php_version }}-xml
+        state: latest
+      notify: Restart PHP-FPM
+      tags:
+        - configure
+
+    - name: Install Caddy web server
+      script: caddy.sh
+      notify: Restart Caddy
+      tags:
+        - configure
+
+    - name: Delete the Caddy default config file
+      become: true
+      file:
+        path: /etc/caddy/Caddyfile
+        state: absent
+      notify: Restart Caddy
+      tags:
+        - configure
+
+    - name: Create project directory and set its permissions
+      become: true
+      file:
+        path: "/var/www/demo"
+        state: directory
+        owner: "vagrant"
+        group: "vagrant"
+      tags:
+        - configure
+
+    - name: Add demo as safe repository
+      command: git config --global --add safe.directory /var/www/demo
+      tags:
+        - configure
+
+    - name: Checkout Git repository
+      git:
+        repo: https://github.com/abdounikarim/demo-ansible.git
+        dest: "/var/www/demo"
+        force: yes
+      tags:
+        - deploy
+
+    - name: Add Caddyfile template
+      become: true
+      template:
+        src: ./Caddyfile
+        dest: "/etc/caddy/Caddyfile"
+      notify: Restart Caddy
+      tags:
+        - configure
+
+    - name: Check if Composer is installed
+      stat:
+        path: /usr/local/bin/composer
+      register: composer_exists
+      tags:
+        - configure
+
+    - name: Install Composer
+      script: composer.sh
+      when: not composer_exists.stat.exists
+      tags:
+        - configure
+
+    - name: Move Composer Globally
+      become: true
+      command: mv composer.phar /usr/local/bin/composer
+      when: not composer_exists.stat.exists
+      tags:
+        - configure
+
+    - name: Set permissions on Composer
+      become: true
+      file:
+        path: /usr/local/bin/composer
+        mode: "a+x"
+      when: not composer_exists.stat.exists
+      tags:
+        - configure
+
+    - name: Install Dependencies
+      composer:
+        working_dir: "/var/www/demo"
+        no_dev: no
+      tags:
+        - deploy
+
+  handlers:
+    - name: Restart PHP-FPM
+      become: true
+      service:
+        name: php{{ php_version }}-fpm
+        state: restarted
+
+    - name: Restart Caddy
+      become: true
+      service:
+        name: caddy
+        state: restarted

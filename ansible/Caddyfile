@@ -1,0 +1,10 @@
+localhost:80 {
+    log
+
+    route {
+        root * /var/www/demo/public
+        php_fastcgi unix//run/php/php8.1-fpm.sock
+        encode zstd gzip
+        file_server
+    }
+}
